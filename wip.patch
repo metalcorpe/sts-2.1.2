@@ -1,0 +1,251 @@
+diff --git a/experiments/create-dir-script b/experiments/create-dir-script
+index eabba42..42b4fab 100644
+--- a/experiments/create-dir-script
++++ b/experiments/create-dir-script
+@@ -1,6 +1,6 @@
+ # Create Directory Structure
+ 
+-for dname in AlgorithmTesting BBS CCG G-SHA1 LCG MODEXP MS QCG1 QCG2 XOR ; do 
++for dname in AlgorithmTesting BBS CCG G-SHA1 LCG MODEXP MS QCG1 QCG2 XOR URANDOM; do 
+ 	mkdir $dname/Frequency
+ 	mkdir $dname/BlockFrequency
+ 	mkdir $dname/Runs
+diff --git a/include/decls.h b/include/decls.h
+index 3878dcf..18523a1 100644
+--- a/include/decls.h
++++ b/include/decls.h
+@@ -14,7 +14,7 @@ FILE		*summary;				// FILE OUTPUT STREAM
+ int			testVector[NUMOFTESTS+1];
+ 
+ char	generatorDir[NUMOFGENERATORS][20] = { "AlgorithmTesting", "LCG", "QCG1", "QCG2","CCG", "XOR",
+-			"MODEXP", "BBS", "MS", "G-SHA1" };
++			"MODEXP", "BBS", "MS", "G-SHA1", "URANDOM" };
+ 				
+ char	testNames[NUMOFTESTS+1][32] = { " ", "Frequency", "BlockFrequency", "CumulativeSums", "Runs", "LongestRun", "Rank",
+ 			"FFT", "NonOverlappingTemplate", "OverlappingTemplate", "Universal", "ApproximateEntropy", "RandomExcursions",
+diff --git a/include/defs.h b/include/defs.h
+index f13d3fb..84c4861 100644
+--- a/include/defs.h
++++ b/include/defs.h
+@@ -24,7 +24,7 @@
+ #define ALPHA							0.01	/* SIGNIFICANCE LEVEL */
+ #define MAXNUMOFTEMPLATES				148		/* APERIODIC TEMPLATES: 148=>temp_length=9 */
+ #define NUMOFTESTS						15		/* MAX TESTS DEFINED  */
+-#define NUMOFGENERATORS					10		/* MAX PRNGs */
++#define NUMOFGENERATORS					11		/* MAX PRNGs */
+ #define MAXFILESPERMITTEDFORPARTITION	148
+ #define	TEST_FREQUENCY					1
+ #define	TEST_BLOCK_FREQUENCY			2
+diff --git a/makefile b/makefile
+index 7ff2cd5..ad86cbe 100644
+--- a/makefile
++++ b/makefile
+@@ -16,7 +16,7 @@ OBJ = $(OBJDIR)/assess.o $(OBJDIR)/frequency.o $(OBJDIR)/blockFrequency.o \
+       $(OBJDIR)/utilities.o $(OBJDIR)/generators.o $(OBJDIR)/genutils.o
+ 
+ assess: $(OBJ)
+-	$(CC) -o $@ $(OBJ) -lm
++	$(CC) -o $@ $(OBJ) -lm -lssl -lcrypto
+ 
+ $(OBJDIR)/assess.o: $(SRCDIR)/assess.c defs.h decls.h utilities.h
+ 	$(CC) -o $@ -c $(SRCDIR)/assess.c
+diff --git a/src/assess.c b/src/assess.c
+index cf41d4f..b488e4f 100644
+--- a/src/assess.c
++++ b/src/assess.c
+@@ -70,12 +70,12 @@ main(int argc, char *argv[])
+ 	}
+ 
+ 	tp.n = atoi(argv[1]);
+-	tp.blockFrequencyBlockLength = 128;
++	tp.blockFrequencyBlockLength = 20000;
+ 	tp.nonOverlappingTemplateBlockLength = 9;
+ 	tp.overlappingTemplateBlockLength = 9;
+-	tp.approximateEntropyBlockLength = 10;
++	tp.approximateEntropyBlockLength = 8;
+ 	tp.serialBlockLength = 16;
+-	tp.linearComplexitySequenceLength = 500;
++	tp.linearComplexitySequenceLength = 1000;
+ 	tp.numOfBitStreams = 1;
+ 	option = generatorOptions(&streamFile);
+ 	chooseTests();
+diff --git a/src/generators.c b/src/generators.c
+index 7369eb2..b40d69a 100644
+--- a/src/generators.c
++++ b/src/generators.c
+@@ -453,4 +453,48 @@ SHA1()
+ 		nist_test_suite();
+ 	}
+ 	free(epsilon);
++}
++
++//  Uses 160 bit Xkey and no XSeed (b=160)
++//  This is the generic form of the generator found on the last page of the Change Notice for FIPS 186-2
++void
++URANDOM()
++{
++
++	printf("     Entering /dev/urandom\n\n");   
++	FILE	*fp;
++	int		i, done, num_0s, num_1s, bitsRead;
++	BYTE	buffer[4];
++	char *streamFile = "/dev/urandom";
++
++	if ( (epsilon = (BitSequence *) calloc(tp.n,sizeof(BitSequence))) == NULL ) {
++		printf("BITSTREAM DEFINITION:  Insufficient memory available.\n");
++		return;
++	}
++	if ( (fp = fopen(streamFile, "rb")) == NULL ) {
++		printf("ERROR IN FUNCTION URANDOM:  file %s could not be opened.\n", streamFile);
++		exit(-1);
++	}
++
++	printf("     Statistical Testing In Progress........./dev/urandom\n\n");   
++	for ( i=0; i<tp.numOfBitStreams; i++ ) {
++		num_0s = 0;
++		num_1s = 0;
++		bitsRead = 0;
++		done = 0;
++		do {
++			if ( fread(buffer, sizeof(unsigned char), 4, fp) != 4 ) {
++				printf("READ ERROR:  Insufficient data in file.\n");
++				free(epsilon);
++				return;
++			}
++			done = convertToBits(buffer, 32, tp.n, &num_0s, &num_1s, &bitsRead);
++		} while ( !done );
++		fprintf(freqfp, "\t\tBITSREAD = %d 0s = %d 1s = %d\n", bitsRead, num_0s, num_1s);
++		
++		printf("Entering Nist test suite");
++		nist_test_suite();
++		
++	}
++	free(epsilon);
+ }
+\ No newline at end of file
+diff --git a/src/utilities.c b/src/utilities.c
+index 53cbd66..c1a1559 100644
+--- a/src/utilities.c
++++ b/src/utilities.c
+@@ -14,7 +14,7 @@ U T I L I T I E S
+ int
+ displayGeneratorOptions()
+ {
+-	int		option = 0;
++	int		option = 10;
+ 
+ 	printf("           G E N E R A T O R    S E L E C T I O N \n");
+ 	printf("           ______________________________________\n\n");
+@@ -22,9 +22,10 @@ displayGeneratorOptions()
+ 	printf("    [2] Quadratic Congruential I   [3] Quadratic Congruential II\n");
+ 	printf("    [4] Cubic Congruential         [5] XOR\n");
+ 	printf("    [6] Modular Exponentiation     [7] Blum-Blum-Shub\n");
+-	printf("    [8] Micali-Schnorr             [9] G Using SHA-1\n\n");
++	printf("    [8] Micali-Schnorr             [9] G Using SHA-1\n");
++	printf("    [10] /dev/urandom              [11] \n\n");
+ 	printf("   Enter Choice: ");
+-	scanf("%d", &option);
++	// scanf("%d", &option);
+ 	printf("\n\n");
+ 
+ 	return option;
+@@ -81,6 +82,9 @@ generatorOptions(char** streamFile)
+ 			case 9:
+ 				*streamFile = "G using SHA-1";
+ 				break;
++			case 10:
++				*streamFile = "/dev/urandom";
++				break;
+ 				
+ 			/* INTRODUCE NEW PRNG NAMES HERE */
+ 			/*
+@@ -100,6 +104,7 @@ void
+ chooseTests()
+ {
+ 	int		i;
++	testVector[0] = 1;
+ 	
+ 	printf("                S T A T I S T I C A L   T E S T S\n");
+ 	printf("                _________________________________\n\n");
+@@ -115,7 +120,7 @@ chooseTests()
+ 	printf("            Enter 0 if you DO NOT want to apply all of the\n");
+ 	printf("            statistical tests to each sequence and 1 if you DO.\n\n");
+ 	printf("   Enter Choice: ");
+-	scanf("%d", &testVector[0]);
++	// scanf("%d", &testVector[0]);
+ 	printf("\n");
+ 	if ( testVector[0] == 1 )
+ 		for( i=1; i<=NUMOFTESTS; i++ )
+@@ -137,7 +142,7 @@ chooseTests()
+ void
+ fixParameters()
+ {
+-	int		counter, testid;
++	int		counter, testid=0;
+ 	
+ 	//  Check to see if any parameterized tests are selected
+ 	if ( (testVector[TEST_BLOCK_FREQUENCY] != 1) && (testVector[TEST_NONPERIODIC] != 1) && 
+@@ -163,7 +168,7 @@ fixParameters()
+ 			printf("    [%d] Linear Complexity Test - block length(M):       %d\n", counter++, tp.linearComplexitySequenceLength);
+ 		printf("\n");
+ 		printf("   Select Test (0 to continue): ");
+-		scanf("%1d", &testid);
++		// scanf("%1d", &testid);
+ 		printf("\n");
+ 		
+ 		counter = 0;
+@@ -266,7 +271,7 @@ readBinaryDigitsInASCIIFormat(FILE *fp, char *streamFile)
+ 		printf("Statistical Testing Aborted!\n");
+ 		return;
+ 	}
+-	printf("     Statistical Testing In Progress.........\n\n");   
++	printf("     Statistical Testing In Progress......... readBinaryDigitsInASCIIFormat\n\n");   
+ 	for ( i=0; i<tp.numOfBitStreams; i++ ) {
+ 		num_0s = 0;
+ 		num_1s = 0;
+@@ -305,7 +310,7 @@ readHexDigitsInBinaryFormat(FILE *fp)
+ 		return;
+ 	}
+ 
+-	printf("     Statistical Testing In Progress.........\n\n");   
++	printf("     Statistical Testing In Progress.........readHexDigitsInBinaryFormat\n\n");   
+ 	for ( i=0; i<tp.numOfBitStreams; i++ ) {
+ 		num_0s = 0;
+ 		num_1s = 0;
+@@ -367,7 +372,7 @@ convertToBits(BYTE *x, int xBitLength, int bitsNeeded, int *num_0s, int *num_1s,
+ void
+ openOutputStreams(int option)
+ {
+-	int		i, numOfBitStreams, numOfOpenFiles = 0;
++	int		i, numOfBitStreams=1073, numOfOpenFiles = 0;
+ 	char	freqfn[200], summaryfn[200], statsDir[200], resultsDir[200];
+ 	
+ 	sprintf(freqfn, "experiments/%s/freq.txt", generatorDir[option]);
+@@ -404,7 +409,7 @@ openOutputStreams(int option)
+ 		}
+ 	}
+ 	printf("   How many bitstreams? ");
+-	scanf("%d", &numOfBitStreams);
++	// scanf("%d", &numOfBitStreams);
+ 	tp.numOfBitStreams = numOfBitStreams;
+ 	printf("\n");
+ }
+@@ -417,7 +422,7 @@ invokeTestSuite(int option, char *streamFile)
+ 	fprintf(freqfp, "\t\tFILE = %s\t\tALPHA = %6.4f\n", streamFile, ALPHA);
+ 	fprintf(freqfp, "________________________________________________________________________________\n\n");
+ 	if ( option != 0 )
+-		printf("     Statistical Testing In Progress.........\n\n");
++		printf("     Statistical Testing In Progress.........invokeTestSuite\n\n");
+ 	switch( option ) {
+ 		case 0:
+ 			fileBasedBitStreams(streamFile);
+@@ -449,6 +454,9 @@ invokeTestSuite(int option, char *streamFile)
+ 		case 9:
+ 			SHA1();
+ 			break;
++		case 10:
++			URANDOM();
++			break;
+ 			
+ 		/* INTRODUCE NEW PSEUDO RANDOM NUMBER GENERATORS HERE */
+ 			
